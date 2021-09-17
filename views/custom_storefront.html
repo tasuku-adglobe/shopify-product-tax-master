@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Custom storefront by Storefront API</title>  
+  <!-- Call storefront API remotely by Shopify hosted CDN uploaded by File API -->
+  <script src="<%= storefront_js %>"></script>
+</head>
+<body>
+
+    <h1>Storefront API HTML side call demo by Shopify CDN</h1>
+
+    <p>Your shop: <a href="https://<%= shop %>" target="_blank"><%= shop %></a></p>
+
+    <h2>1. Login as a customer</h2>
+    <label>Email: </label><input id="email" type="text" value=""><br/>
+    <label>Password: </label><input id="pass" type="password" value=""><br/>
+    <input id="login" type="button" value="Login" style="font-size: x-large" onclick="login();">
+
+    <h2>2. Add to cart</h2>
+    <span id="cart"></span>
+
+    <h2>3. Checkout!</h2>
+    <span id="checkout"></span>
+
+
+    <p>Storefront API response: 
+        <div id="api_res"></div>
+    </p>
+
+
+    <script>
+        const shop = '<%= shop %>';
+        const storefront_access_token = '<%= storefront_access_token %>'; 
+        const version = '<%= version %>';        
+        
+        //var cart_id = null; 
+        var checkout_id = null;       
+
+        const set_api_response = function(name, api_res) {
+            console.log(`[${name}] ${JSON.stringify(api_res)}`);           
+            window.document.getElementById('api_res').innerHTML = `${window.document.getElementById('api_res').innerHTML} <p>[${name}] ${JSON.stringify(api_res)}</p>`;
+        }           
+
+        const login = function(){
+            let res = storefront_api_call(shop, storefront_access_token, version, `mutation customerAccessTokenCreate($input: CustomerAccessTokenCreateInput!) {
+                customerAccessTokenCreate(input: $input) {
+                    customerAccessToken {
+                        accessToken
+                        expiresAt
+                    }
+                    customerUserErrors {
+                        code
+                        field
+                        message
+                    }
+                }
+            }`, {
+                    "input": {
+                        "email": window.document.getElementById('email').value,
+                        "password": window.document.getElementById('pass').value
+                    }
+            });
+            set_api_response('customerAccessTokenCreate',res);            
+                
+            if (res.data.customerAccessTokenCreate.customerAccessToken == null) {
+                alert(res.data.customerAccessTokenCreate.customerUserErrors[0].code);
+                return;
+            }       
+            
+            const customer_access_token = res.data.customerAccessTokenCreate.customerAccessToken.accessToken;   
+            
+            res = storefront_api_call(shop, storefront_access_token, version, `{
+              customer(customerAccessToken: "${customer_access_token}") {
+                    id
+                    email
+                    displayName
+                    firstName
+                    lastName
+                    defaultAddress {
+                        firstName 
+                        lastName 
+                        address1 
+                        address2 
+                        city 
+                        province 
+                        zip 
+                        phone
+                        country
+                        company                                                     
+                    }
+              }
+            }`);
+            set_api_response('customer', res); 
+            
+            alert(`Welcome ${res.data.customer.displayName}!`);
+
+            const default_address = res.data.customer.defaultAddress;
+            
+            /*res = storefront_api_call(shop, storefront_access_token, version, `mutation {
+              cartCreate (input: {
+                buyerIdentity: {
+                  customerAccessToken: "${customer_access_token}"
+                }
+              }) {
+                cart {
+                  id
+                  checkoutUrl
+                }
+              }
+            }`);
+            set_api_response(res);
+
+            cart_id = res.data.cartCreate.cart.id;
+            const checkout_url = res.data.cartCreate.cart.checkoutUrl;*/
+
+            res = storefront_api_call(shop, storefront_access_token, version, `mutation checkoutCreate($input: CheckoutCreateInput!) {
+              checkoutCreate(input: $input) {
+                checkout {
+                  id
+                  orderStatusUrl
+                  webUrl
+                }
+                checkoutUserErrors {
+                  code
+                  field
+                  message
+                }
+                queueToken
+               }
+            }`, {
+                    "input": {
+                       "shippingAddress": default_address
+                    }
+            });
+            set_api_response('checkoutCreate', res);
+
+            checkout_id = res.data.checkoutCreate.checkout.id;   
+            
+            const checkout_url = res.data.checkoutCreate.checkout.webUrl;
+
+            res = storefront_api_call(shop, storefront_access_token, version, `mutation checkoutCustomerAssociateV2($checkoutId: ID!, $customerAccessToken: String!) {
+              checkoutCustomerAssociateV2(
+                checkoutId: $checkoutId
+                customerAccessToken: $customerAccessToken
+               ) {
+                checkout {
+                 id
+                 orderStatusUrl
+                 webUrl
+               }
+               checkoutUserErrors {
+                code
+                field
+                message
+               }
+               customer {
+                 id
+               }
+              }
+              }`, {
+                "checkoutId": checkout_id,
+                "customerAccessToken": customer_access_token
+            });
+            set_api_response('checkoutCustomerAssociateV2', res);            
+            
+            res = storefront_api_call(shop, storefront_access_token, version, `{
+              products(first:10) {
+                edges {
+                  node {
+                    id
+                    title
+                    ... on Product {
+                      variants(first: 1) {
+                        edges {
+                          node {
+                            id
+                            title
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }`);
+            set_api_response('products', res);
+
+            let cart = '<ul>';
+            const size = res.data.products.edges.length;
+            for (let i = 0; i<size; i++) {
+                cart = cart + `<li><input type="button" value="Add ${res.data.products.edges[i].node.title} ${res.data.products.edges[i].node.variants.edges[0].node.title} to cart" onclick="add_cart('${res.data.products.edges[i].node.variants.edges[0].node.id}');"></li>`;
+            }
+            cart = cart + '</ul>';
+            window.document.getElementById('cart').innerHTML = cart;
+
+            window.document.getElementById('checkout').innerHTML = `<a style="font-size: x-large" href="${checkout_url}">Checkout!</a>`;  
+            
+        };
+
+        const add_cart = function(id) {
+            /*res = storefront_api_call(shop, storefront_access_token, version, `mutation cartLinesAdd($lines: [CartLineInput!]!, $cartId: ID!) {
+              cartLinesAdd(lines: $lines, cartId: $cartId) {
+                cart {
+                  id
+                 }
+                 userErrors {
+                  code
+                  field
+                  message
+                 }
+                }
+              }`, {
+                    "lines": [
+                      {
+                        "merchandiseId": id
+                      }
+                    ],
+                    "cartId": cart_id
+             });*/
+
+             res = storefront_api_call(shop, storefront_access_token, version, `mutation checkoutLineItemsAdd($lineItems: [CheckoutLineItemInput!]!, $checkoutId: ID!) {
+                checkoutLineItemsAdd(lineItems: $lineItems, checkoutId: $checkoutId) {
+                  checkout {
+                    id
+                    orderStatusUrl
+                    webUrl
+                  }
+                  checkoutUserErrors {
+                    code
+                    field
+                    message
+                  }
+                }
+            }`, {
+                  "lineItems": [
+                    {
+                      "quantity": 1,
+                      "variantId": id
+                    }
+                  ],
+                 "checkoutId": checkout_id
+            });
+            set_api_response('checkoutLineItemsAdd', res);
+            
+            alert(`The item added!`);
+        }
+
+    </script>
+
+
+</body>
+</html>

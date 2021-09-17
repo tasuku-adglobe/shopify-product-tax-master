@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Auth</title>
+  <!-- My own i18n script -->
+  <script src="/i18n.js"></script>
+  <script src="https://unpkg.com/@shopify/app-bridge"></script>
+</head>
+<body>
+    <script>
+        var AppBridge = window['app-bridge'];
+        var createApp = AppBridge.createApp;
+        var actions = AppBridge.actions;
+        var ResourcePicker = actions.ResourcePicker;
+        var TitleBar = actions.TitleBar;
+        var Button = actions.Button;
+        var Redirect = actions.Redirect;
+        var Toast = actions.Toast;
+        
+        const apiKey = '<%= api_key %>';
+        const shopOrigin = '<%= shop %>';
+
+        const app = createApp({
+            apiKey: apiKey,
+            shopOrigin: shopOrigin
+        });
+
+
+
+        const productPicker = ResourcePicker.create(app, {
+          resourceType: ResourcePicker.ResourceType.Product,
+          options: {
+            initialQuery: '<%= id %>'                    
+           }
+         });
+        productPicker.subscribe(ResourcePicker.Action.SELECT, ({selection}) => {
+          alert(JSON.stringify(selection));
+        });
+        productPicker.subscribe(ResourcePicker.Action.CANCEL, () => {
+          alert('Canceled!');
+        });
+        productPicker.dispatch(ResourcePicker.Action.OPEN);
+
+
+
+        const breadcrumb = Button.create(app, { label: 'My Breadcrumb' });
+        breadcrumb.subscribe(Button.Action.CLICK, () => {
+          app.dispatch(Redirect.toApp({ path: '/breadcrumb-link' }));
+        });
+        const titleBarOptions = {
+          title: LANG.top.title['<%= locale %>'],  // i18n code
+          breadcrumbs: breadcrumb,
+        };
+        const myTitleBar = TitleBar.create(app, titleBarOptions);
+
+
+
+        const toastNotice = Toast.create(app, {message: 'Product saved'});
+        toastNotice.subscribe(Toast.Action.SHOW, data => {
+          // Do something with the show action
+        });
+        toastNotice.subscribe(Toast.Action.CLEAR, data => {
+          // Do something with the clear action
+        });
+        toastNotice.dispatch(Toast.Action.SHOW);
+
+       
+     </script>
+</body>
+</html>
